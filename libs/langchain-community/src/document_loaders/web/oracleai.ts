@@ -220,3 +220,38 @@ class OracleDocReader {
   }
 
 }
+
+export class OracleDocLoader extends BaseDocumentLoader {
+  private conn: oracledb.Connection;
+  private file?: string;
+  private dir?: string;
+  private tablename?: string;
+  private owner?: string;
+  private colname?: string;
+
+  constructor(conn: oracledb.Connection, file?: string, dir?: string, 
+              tablename?: string, owner?: string, colname?: string) {
+    super();
+    this.conn = conn;
+    this.file = file;
+    this.dir = dir;
+    this.owner = owner;
+    this.tablename = tablename;
+    this.colname = colname;
+  }
+
+  public async load(): Promise<Document[]> {
+    if(this.file !== undefined) {
+      return [];
+    }
+    else if(this.dir !== undefined) {
+      return [];
+    }
+    else if(this.tablename !== undefined) {
+      return [];
+    }
+    else {
+      throw Error;
+    }
+  }
+}
