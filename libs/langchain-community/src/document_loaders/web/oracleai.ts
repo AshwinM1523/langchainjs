@@ -233,27 +233,190 @@ export class OracleDocLoader extends BaseDocumentLoader {
   private loadFromType: OracleLoadFromType;
   private owner?: string;
   private colname?: string;
+  private mdata_cols?: string[];
 
   constructor(conn: oracledb.Connection, loadFrom: string, loadFromType: OracleLoadFromType, 
-              owner?: string, colname?: string) {
+              owner?: string, colname?: string, mdata_cols?: string[]) {
     super();
     this.conn = conn;
     this.loadFrom = loadFrom;
     this.loadFromType = loadFromType;
     this.owner = owner;
     this.colname = colname;
+    this.mdata_cols = mdata_cols;
   }
 
   public async load(): Promise<Document[]> {
+    const m_params = { plaintext: "false" };
+
     switch (this.loadFromType) {
       case OracleLoadFromType.FILE:
         return [];
       case OracleLoadFromType.DIR:
         return [];
       case OracleLoadFromType.TABLE:
-        return [];
+        return await this.loadFromTable(m_params);
       default:
         throw Error;
     }
   }
+
+  private isValidIdentifier(identifier: string): boolean {
+    return /^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier);
+  }
+
+  private async getUsername(): Promise<string> {
+    const result = await this.conn.execute('SELECT USER FROM dual');
+    return result.rows?.[0]?.[0] || "unknown_user";
+  }
+
+  private async loadFromTable(m_params: any): Promise<Document[]> {
+    const results: Document[] = [];
+    
+    if (!this.owner || !this.colname) {
+      throw new Error("Owner and column name must be specified for loading from a table");
+    }
+    
+    // Validate identifiers to prevent SQL injection
+    if (!this.isValidIdentifier(this.owner)) {
+      throw new Error("Invalid owner name");
+    }
+
+    if (!this.isValidIdentifier(this.loadFrom)) {
+        throw new Error("Invalid table name");
+    }
+
+    if (!this.isValidIdentifier(this.colname)) {
+      throw new Error("Invalid column name");
+    }
+    
+    let mdataColsSql = ", t.ROWID AS ROWID";
+
+    if (this.mdata_cols) {
+        if (this.mdata_cols.length > 3) {
+            throw new Error("Exceeds max columns for metadata");
+        }
+
+        const colSql = `
+            SELECT COLUMN_NAME, DATA_TYPE
+            FROM ALL_TAB_COLUMNS
+            WHERE OWNER = :ownername AND TABLE_NAME = :tablename
+        `;
+
+        const colBinds = {
+            ownername: this.owner.toUpperCase(),
+            tablename: this.loadFrom.toUpperCase(),
+        };
+
+        const colResult = await this.conn.execute(colSql, colBinds, {
+            outFormat: oracledb.OUT_FORMAT_OBJECT,
+        });
+
+        const colRows = colResult.rows;
+
+        if (!colRows) {
+            throw new Error("Failed to retrieve column information");
+        }
+
+        const colTypes: Record<string, string> = {};
+        for (const row of colRows) {
+            const colName = row["COLUMN_NAME"];
+            const dataType = row["DATA_TYPE"];
+            colTypes[colName] = dataType;
+        }
+
+        for (const col of this.mdata_cols) {
+            if (!this.isValidIdentifier(col)) {
+                throw new Error(`Invalid column name in mdata_cols: ${col}`);
+            }
+
+            const dataType = colTypes[col];
+            if (!dataType) {
+                throw new Error(
+                    `Column ${col} not found in table ${this.loadFrom}`
+                );
+            }
+
+            if (![
+                "NUMBER",
+                "BINARY_DOUBLE",
+                "BINARY_FLOAT",
+                "LONG",
+                "DATE",
+                "TIMESTAMP",
+                "VARCHAR2",
+                ].includes(dataType)
+            ) {
+                throw new Error(
+                    `The datatype for the column ${col} is not supported`
+                )
+            }
+        }
+
+        for (const col of this.mdata_cols) {
+            mdataColsSql += `, t.${col}`;
+        }
+        
+    }
+
+    const mainSql = `
+        SELECT dbms_vector_chain.utl_to_text(t.${this.colname}, json(:params)) AS MDATA,
+            dbms_vector_chain.utl_to_text(t.${this.colname}) AS TEXT
+            ${mdataColsSql}
+        FROM ${this.owner}.${this.loadFrom} t
+    `;
+
+    const mainBinds = {
+        params: JSON.stringify(m_params),
+    };
+
+    const options = {
+        outFormat: oracledb.OUT_FORMAT_OBJECT,
+    };
+
+    const result = await this.conn.execute(mainSql, mainBinds, options);
+    const rows = result.rows;
+
+    const username = await this.getUsername();
+
+    if (rows) {
+        for (const row of rows) {
+            let metadata: Record<string, any> = {};
+
+            if (row["MDATA"]) {
+                const data = row["MDATA"] as string;
+                if (data.startsWith("<!DOCTYPE html") || data.startsWith("<HTML>")) {
+                    const parser = new ParseOracleDocMetadata();
+                    parser.parse(data);
+                    metadata = parser.getMetadata();
+                }
+            }
+
+            const docId = OracleDocReader.generateObjectId(
+                `${username}$${this.owner}$${this.loadFrom}$${this.colname}$${row["ROWID"]}`
+            );
+
+            metadata["_oid"] = docId;
+            metadata["_rowid"] = row["ROWID"];
+
+            if (this.mdata_cols) {
+                for (const colName of this.mdata_cols) {
+                    metadata[colName] = row[colName];
+                }
+            }
+
+            const text = row["TEXT"] as string;
+
+            if (text === null || text === undefined) {
+                results.push(new Document("", metadata));
+            } else {
+                results.push(new Document(text, metadata));
+            }
+        }
+    }
+
+    return results;
+
+  }
+  
 }
