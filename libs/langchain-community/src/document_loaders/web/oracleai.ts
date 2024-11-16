@@ -221,37 +221,39 @@ class OracleDocReader {
 
 }
 
+enum OracleLoadFromType {
+  FILE,
+  DIR,
+  TABLE,
+};
+
 export class OracleDocLoader extends BaseDocumentLoader {
   private conn: oracledb.Connection;
-  private file?: string;
-  private dir?: string;
-  private tablename?: string;
+  private loadFrom: string;
+  private loadFromType: OracleLoadFromType;
   private owner?: string;
   private colname?: string;
 
-  constructor(conn: oracledb.Connection, file?: string, dir?: string, 
-              tablename?: string, owner?: string, colname?: string) {
+  constructor(conn: oracledb.Connection, loadFrom: string, loadFromType: OracleLoadFromType, 
+              owner?: string, colname?: string) {
     super();
     this.conn = conn;
-    this.file = file;
-    this.dir = dir;
+    this.loadFrom = loadFrom;
+    this.loadFromType = loadFromType;
     this.owner = owner;
-    this.tablename = tablename;
     this.colname = colname;
   }
 
   public async load(): Promise<Document[]> {
-    if(this.file !== undefined) {
-      return [];
-    }
-    else if(this.dir !== undefined) {
-      return [];
-    }
-    else if(this.tablename !== undefined) {
-      return [];
-    }
-    else {
-      throw Error;
+    switch (this.loadFromType) {
+      case OracleLoadFromType.FILE:
+        return [];
+      case OracleLoadFromType.DIR:
+        return [];
+      case OracleLoadFromType.TABLE:
+        return [];
+      default:
+        throw Error;
     }
   }
 }
