@@ -4,6 +4,7 @@ import { Parser, DomHandler } from "htmlparser2";
 import oracledb from "oracledb";
 import crypto from "crypto";
 import fs from "fs";
+import path from 'path';
 
 
 
@@ -16,7 +17,7 @@ interface OutBinds {
     text: oracledb.Lob | null;
 }
 
-class ParseOracleDocMetadata {
+export class ParseOracleDocMetadata {
     private metadata: Metadata;
     private match: boolean;
 
@@ -221,7 +222,7 @@ class OracleDocReader {
 
 }
 
-enum OracleLoadFromType {
+export enum OracleLoadFromType {
   FILE,
   DIR,
   TABLE,
@@ -245,15 +246,41 @@ export class OracleDocLoader extends BaseDocumentLoader {
   }
 
   public async load(): Promise<Document[]> {
+    const documents: Document[] = []
+    const m_params = {"plaintext": "false"}
+
     switch (this.loadFromType) {
       case OracleLoadFromType.FILE:
-        return [];
+        const filepath = this.loadFrom
+        const doc = await OracleDocReader.readFile(this.conn, filepath, m_params)
+        if (doc)
+          documents.push(doc);
+        break;
+
       case OracleLoadFromType.DIR:
-        return [];
+        try {
+          const dirname = this.loadFrom;
+          const files = await fs.promises.readdir(dirname);
+          for (const file of files) {
+            const filepath = path.join(dirname, file);
+            const stats = await fs.promises.lstat(filepath);
+
+            if (stats.isFile()) {
+              const doc = await OracleDocReader.readFile(this.conn, filepath, m_params)
+              if (doc)
+                documents.push(doc);
+            }
+          }
+        } catch (err) {
+          console.error('Error reading directory:', err);
+        }
+        break;
+
       case OracleLoadFromType.TABLE:
-        return [];
+
       default:
-        throw Error;
+        throw new Error("Invalid type to load from");
     }
+    return documents
   }
 }
