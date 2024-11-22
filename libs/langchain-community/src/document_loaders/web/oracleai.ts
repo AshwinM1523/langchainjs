@@ -1,6 +1,6 @@
 import { Document } from "@langchain/core/documents";
 import { BaseDocumentLoader } from "@langchain/core/document_loaders/base";
-import { Parser, DomHandler } from "htmlparser2";
+import { Parser } from "htmlparser2";
 import oracledb from "oracledb";
 import crypto from "crypto";
 import fs from "fs";
@@ -150,7 +150,6 @@ class OracleDocReader {
     try {
       // Read the file as binary data
       const data = await new Promise<Buffer>((resolve, reject) => {
-        const fs = require("fs");
         fs.readFile(filePath, (err: NodeJS.ErrnoException | null, data: Buffer) => {
           if (err) reject(err);
           else resolve(data);
@@ -158,7 +157,7 @@ class OracleDocReader {
       });
 
       if (!data) {
-        return new Document("", metadata);
+        return new Document({pageContent: "", metadata});
       }
 
       const bindVars = {
@@ -199,20 +198,17 @@ class OracleDocReader {
       }
 
       // Execute a query to get the current session user
-      const userResult = await conn.execute<{ USERNAME: string }>(
+      const userResult = await conn.execute<string[]>(
         `SELECT USER FROM dual`
       );
 
-      const username = userResult.rows?.[0]?.USERNAME;
+      const username = userResult.rows?.[0]?.[0];
       const docId = OracleDocReader.generateObjectId(`${username}$${filePath}`);
       metadata["_oid"] = docId;
       metadata["_file"] = filePath;
 
-      if (!textData) {
-        return Document("", metadata)
-    } else {
-        return Document(textData, metadata)
-    }
+      textData = textData ?? "";
+      return new Document({pageContent: textData, metadata})
     } catch (ex) {
       console.error(`An exception occurred: ${ex}`);
       console.error(`Skip processing ${filePath}`);
