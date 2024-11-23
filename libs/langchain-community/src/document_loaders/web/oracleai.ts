@@ -122,24 +122,6 @@ class OracleDocReader {
     return objectIdHex.slice(0, outLength);
   }
 
-// Helper function to read CLOB data
-  static async readClob(lob: oracledb.Lob): Promise<string> {
-    return new Promise((resolve, reject) => {
-      let clobData = "";
-      lob.setEncoding("utf8");
-      lob.on("data", (chunk) => {
-        clobData += chunk;
-      });
-      lob.on("end", () => {
-        resolve(clobData);
-      });
-      lob.on("error", (err) => {
-        reject(err);
-      });
-    });
-  }
- 
-
   static async readFile(
     conn: oracledb.Connection,
     filePath: string,
@@ -185,8 +167,11 @@ class OracleDocReader {
       const textLob = outBinds.text;
 
       // Read and parse metadata
-      let docData = mdataLob ? await OracleDocReader.readClob(mdataLob) : "";
-      let textData = textLob ? await OracleDocReader.readClob(textLob) : "";
+      let docData = await mdataLob?.getData();
+      let textData = await textLob?.getData();
+
+      docData = docData ? docData.toString() : "";
+      textData = textData ? textData.toString() : "";
 
       if (
         docData.startsWith("<!DOCTYPE html") ||
