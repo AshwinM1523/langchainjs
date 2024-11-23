@@ -1,6 +1,7 @@
 import { OracleDocLoader, OracleLoadFromType } from "../web/oracleai.js";
-import { ParseOracleDocMetadata } from "../web/oracleai.js";
+import { ParseOracleDocMetadata, TableRow } from "../web/oracleai.js";
 import {jest} from '@jest/globals'
+import * as oracledb from 'oracledb';
 
 
 describe("ParseOracleDocMetadata", () => {
@@ -63,219 +64,248 @@ describe("ParseOracleDocMetadata", () => {
   });
 });
 
-describe("OracleDocLoader - loadFromTable", () => {
-    let connection: any;
+
+describe('OracleDocLoader - loadFromTable', () => {
+    let conn: Partial<oracledb.Connection>;
+    let executeMock: any;
   
     beforeEach(() => {
-      connection = {
-        execute: jest.fn(),
-        close: jest.fn(),
+      executeMock = jest.fn();
+      conn = {
+        execute: executeMock,
       };
     });
   
-    afterEach(() => {
-      jest.clearAllMocks();
-    });
+    test('loadFromTable with valid parameters', async () => {
+      // Mock the execute method for the column type query
+      executeMock.mockResolvedValueOnce({
+        rows: [
+          { COLUMN_NAME: 'COL1', DATA_TYPE: 'VARCHAR2' },
+          { COLUMN_NAME: 'COL2', DATA_TYPE: 'NUMBER' },
+          { COLUMN_NAME: 'COL3', DATA_TYPE: 'DATE' },
+        ],
+      } as oracledb.Result<{ COLUMN_NAME: string; DATA_TYPE: string }>);
   
-    test("should load documents from a table with valid data", async () => {
+      // Mock the execute method for getting username
+      executeMock.mockResolvedValueOnce({
+        rows: [{ USER: 'TESTUSER' }],
+      } as oracledb.Result<{ USER: string }>);
+  
+      // Mock the execute method for the main query
+      executeMock.mockResolvedValueOnce({
+        rows: [
+          {
+            MDATA: '<HTML><title>Title1</title><meta name="author" content="Author1"/></HTML>',
+            TEXT: 'Text content 1',
+            ROWID: 'AAABBBCCC',
+            COL1: 'Value1',
+            COL2: 123,
+            COL3: new Date('2021-01-01'),
+          },
+          {
+            MDATA: '<HTML><title>Title2</title><meta name="author" content="Author2"/></HTML>',
+            TEXT: 'Text content 2',
+            ROWID: 'AAABBBCCD',
+            COL1: 'Value2',
+            COL2: 456,
+            COL3: new Date('2021-02-01'),
+          },
+        ],
+      } as oracledb.Result<TableRow>);
+  
       const loader = new OracleDocLoader(
-        connection,
-        "test_table",
+        conn as oracledb.Connection,
+        'MYTABLE',
         OracleLoadFromType.TABLE,
-        "TEST_USER",
-        "CONTENT_COLUMN",
-        ["ID", "AUTHOR"]
+        'MYSCHEMA',
+        'MYCOLUMN',
+        ['COL1', 'COL2', 'COL3']
       );
-  
-      // Mock the username retrieval
-      jest.spyOn(loader as any, "getUsername").mockResolvedValue("test_user");
-  
-      // Mock column metadata retrieval
-      connection.execute
-        .mockResolvedValueOnce({
-          rows: [
-            { COLUMN_NAME: "ID", DATA_TYPE: "NUMBER" },
-            { COLUMN_NAME: "AUTHOR", DATA_TYPE: "VARCHAR2" },
-            { COLUMN_NAME: "CONTENT_COLUMN", DATA_TYPE: "CLOB" },
-          ],
-        })
-        .mockResolvedValueOnce({
-          rows: [
-            {
-              MDATA: "<html><title>Document 1</title></html>",
-              TEXT: "This is the content of document 1",
-              ROWID: "ROWID1",
-              ID: 1,
-              AUTHOR: "Author 1",
-            },
-            {
-              MDATA: "<html><title>Document 2</title></html>",
-              TEXT: "This is the content of document 2",
-              ROWID: "ROWID2",
-              ID: 2,
-              AUTHOR: "Author 2",
-            },
-          ],
-        });
   
       const documents = await loader.load();
   
-      expect(connection.execute).toHaveBeenCalledTimes(2); // Metadata + rows
       expect(documents).toHaveLength(2);
   
-      // Validate the first document
-      expect(documents[0].pageContent).toBe("This is the content of document 1");
+      expect(documents[0].pageContent).toBe('Text content 1');
       expect(documents[0].metadata).toEqual({
+        title: 'Title1',
+        author: 'Author1',
         _oid: expect.any(String),
-        _rowid: "ROWID1",
-        ID: 1,
-        AUTHOR: "Author 1",
-        title: "Document 1",
+        _rowid: 'AAABBBCCC',
+        COL1: 'Value1',
+        COL2: 123,
+        COL3: new Date('2021-01-01'),
       });
   
-      // Validate the second document
-      expect(documents[1].pageContent).toBe("This is the content of document 2");
+      expect(documents[1].pageContent).toBe('Text content 2');
       expect(documents[1].metadata).toEqual({
+        title: 'Title2',
+        author: 'Author2',
         _oid: expect.any(String),
-        _rowid: "ROWID2",
-        ID: 2,
-        AUTHOR: "Author 2",
-        title: "Document 2",
+        _rowid: 'AAABBBCCD',
+        COL1: 'Value2',
+        COL2: 456,
+        COL3: new Date('2021-02-01'),
       });
     });
   
-    test("should throw an error for invalid table name", async () => {
+    test('loadFromTable with missing owner', async () => {
       const loader = new OracleDocLoader(
-        connection,
-        "invalid_table_name!",
+        conn as oracledb.Connection,
+        'MYTABLE',
         OracleLoadFromType.TABLE,
-        "TEST_USER",
-        "CONTENT_COLUMN"
+        undefined, // owner is missing
+        'MYCOLUMN',
+        ['COL1']
       );
   
-      await expect(loader.load()).rejects.toThrow("Invalid table name");
+      await expect(loader.load()).rejects.toThrow(
+        "Owner and column name must be specified for loading from a table"
+      );
     });
   
-    test("should handle empty results gracefully", async () => {
+    test('loadFromTable with missing column name', async () => {
       const loader = new OracleDocLoader(
-        connection,
-        "test_table",
+        conn as oracledb.Connection,
+        'MYTABLE',
         OracleLoadFromType.TABLE,
-        "TEST_USER",
-        "CONTENT_COLUMN"
+        'MYSCHEMA',
+        undefined, // column name is missing
+        ['COL1']
       );
   
-      jest.spyOn(loader as any, "getUsername").mockResolvedValue("test_user");
+      await expect(loader.load()).rejects.toThrow(
+        "Owner and column name must be specified for loading from a table"
+      );
+    });
   
-      // Mock no rows in the table
-      connection.execute
-        .mockResolvedValueOnce({
-          rows: [
-            { COLUMN_NAME: "ID", DATA_TYPE: "NUMBER" },
-            { COLUMN_NAME: "CONTENT_COLUMN", DATA_TYPE: "CLOB" },
-          ],
-        })
-        .mockResolvedValueOnce({
-          rows: [],
-        });
+    test('loadFromTable with mdata_cols exceeding 3 columns', async () => {
+      const loader = new OracleDocLoader(
+        conn as oracledb.Connection,
+        'MYTABLE',
+        OracleLoadFromType.TABLE,
+        'MYSCHEMA',
+        'MYCOLUMN',
+        ['COL1', 'COL2', 'COL3', 'COL4'] // 4 columns, exceeding limit
+      );
+  
+      await expect(loader.load()).rejects.toThrow(
+        "Exceeds the max number of columns you can request for metadata."
+      );
+    });
+  
+    test('loadFromTable with invalid column names in mdata_cols', async () => {
+      const loader = new OracleDocLoader(
+        conn as oracledb.Connection,
+        'MYTABLE',
+        OracleLoadFromType.TABLE,
+        'MYSCHEMA',
+        'MYCOLUMN',
+        ['INVALID-COL1'] // invalid column name
+      );
+  
+      await expect(loader.load()).rejects.toThrow(
+        "Invalid column name in mdata_cols: INVALID-COL1"
+      );
+    });
+  
+    test('loadFromTable with mdata_cols containing unsupported data types', async () => {
+      // Mock the execute method for the column type query
+      executeMock.mockResolvedValueOnce({
+        rows: [
+          { COLUMN_NAME: 'COL1', DATA_TYPE: 'CLOB' }, // Unsupported data type
+        ],
+      } as oracledb.Result<{ COLUMN_NAME: string; DATA_TYPE: string }>);
+  
+      const loader = new OracleDocLoader(
+        conn as oracledb.Connection,
+        'MYTABLE',
+        OracleLoadFromType.TABLE,
+        'MYSCHEMA',
+        'MYCOLUMN',
+        ['COL1']
+      );
+  
+      await expect(loader.load()).rejects.toThrow(
+        'The datatype for the column COL1 is not supported'
+      );
+    });
+  
+    test('loadFromTable with empty table', async () => {
+      // Mock the execute method for the column type query
+      executeMock.mockResolvedValueOnce({
+        rows: [
+          { COLUMN_NAME: 'COL1', DATA_TYPE: 'VARCHAR2' },
+        ],
+      } as oracledb.Result<{ COLUMN_NAME: string; DATA_TYPE: string }>);
+  
+      // Mock the execute method for getting username
+      executeMock.mockResolvedValueOnce({
+        rows: [{ USER: 'TESTUSER' }],
+      } as oracledb.Result<{ USER: string }>);
+  
+      // Mock the execute method for the main query (empty result set)
+      executeMock.mockResolvedValueOnce({
+        rows: [],
+      } as oracledb.Result<TableRow>);
+  
+      const loader = new OracleDocLoader(
+        conn as oracledb.Connection,
+        'MYTABLE',
+        OracleLoadFromType.TABLE,
+        'MYSCHEMA',
+        'MYCOLUMN',
+        ['COL1']
+      );
   
       const documents = await loader.load();
   
-      expect(connection.execute).toHaveBeenCalledTimes(2); // Metadata + rows
       expect(documents).toHaveLength(0);
     });
   
-    test("should handle missing metadata gracefully", async () => {
+    test('loadFromTable with null column data', async () => {
+      // Mock the execute method for the column type query
+      executeMock.mockResolvedValueOnce({
+        rows: [
+          { COLUMN_NAME: 'COL1', DATA_TYPE: 'VARCHAR2' },
+        ],
+      } as oracledb.Result<{ COLUMN_NAME: string; DATA_TYPE: string }>);
+  
+      // Mock the execute method for getting username
+      executeMock.mockResolvedValueOnce({
+        rows: [{ USER: 'TESTUSER' }],
+      } as oracledb.Result<{ USER: string }>);
+  
+      // Mock the execute method for the main query with null TEXT and MDATA
+      executeMock.mockResolvedValueOnce({
+        rows: [
+          {
+            MDATA: null,
+            TEXT: null,
+            ROWID: 'AAABBBCCC',
+            COL1: 'Value1',
+          },
+        ],
+      } as oracledb.Result<TableRow>);
+  
       const loader = new OracleDocLoader(
-        connection,
-        "test_table",
+        conn as oracledb.Connection,
+        'MYTABLE',
         OracleLoadFromType.TABLE,
-        "TEST_USER",
-        "CONTENT_COLUMN",
-        ["ID"]
+        'MYSCHEMA',
+        'MYCOLUMN',
+        ['COL1']
       );
-  
-      jest.spyOn(loader as any, "getUsername").mockResolvedValue("test_user");
-  
-      // Mock row with missing metadata
-      connection.execute
-        .mockResolvedValueOnce({
-          rows: [
-            { COLUMN_NAME: "ID", DATA_TYPE: "NUMBER" },
-            { COLUMN_NAME: "CONTENT_COLUMN", DATA_TYPE: "CLOB" },
-          ],
-        })
-        .mockResolvedValueOnce({
-          rows: [
-            {
-              MDATA: null,
-              TEXT: "Document content without metadata",
-              ROWID: "ROWID3",
-              ID: 3,
-            },
-          ],
-        });
   
       const documents = await loader.load();
   
-      expect(connection.execute).toHaveBeenCalledTimes(2); // Metadata + rows
-      expect(documents).toHaveLength(1);
-      expect(documents[0].pageContent).toBe("Document content without metadata");
-      expect(documents[0].metadata).toEqual({
-        _oid: expect.any(String),
-        _rowid: "ROWID3",
-        ID: 3,
-      });
-    });
-  
-    test("should handle additional metadata columns", async () => {
-      const loader = new OracleDocLoader(
-        connection,
-        "test_table",
-        OracleLoadFromType.TABLE,
-        "TEST_USER",
-        "CONTENT_COLUMN",
-        ["ID", "AUTHOR", "CATEGORY"]
-      );
-  
-      jest.spyOn(loader as any, "getUsername").mockResolvedValue("test_user");
-  
-      connection.execute
-        .mockResolvedValueOnce({
-          rows: [
-            { COLUMN_NAME: "ID", DATA_TYPE: "NUMBER" },
-            { COLUMN_NAME: "AUTHOR", DATA_TYPE: "VARCHAR2" },
-            { COLUMN_NAME: "CATEGORY", DATA_TYPE: "VARCHAR2" },
-            { COLUMN_NAME: "CONTENT_COLUMN", DATA_TYPE: "CLOB" },
-          ],
-        })
-        .mockResolvedValueOnce({
-          rows: [
-            {
-              MDATA: "<html><title>Document 1</title></html>",
-              TEXT: "This is the content of document 1",
-              ROWID: "ROWID4",
-              ID: 4,
-              AUTHOR: "Author 4",
-              CATEGORY: "Category 4",
-            },
-          ],
-        });
-  
-      const documents = await loader.load();
-  
-      expect(connection.execute).toHaveBeenCalledTimes(2); // Metadata + rows
       expect(documents).toHaveLength(1);
   
-      expect(documents[0].pageContent).toBe("This is the content of document 1");
+      expect(documents[0].pageContent).toBe('');
       expect(documents[0].metadata).toEqual({
         _oid: expect.any(String),
-        _rowid: "ROWID4",
-        ID: 4,
-        AUTHOR: "Author 4",
-        CATEGORY: "Category 4",
-        title: "Document 1",
+        _rowid: 'AAABBBCCC',
+        COL1: 'Value1',
       });
     });
   });
-  
