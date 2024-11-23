@@ -294,7 +294,7 @@ export class OracleDocLoader extends BaseDocumentLoader {
             throw new Error("Invalid column name");
         }
 
-        let mdataColsSql = ", t.ROWID AS ROWID";
+        let mdataColsSql = ", t.ROWID";
 
         if (this.mdata_cols) {
             if (this.mdata_cols.length > 3) {
@@ -397,7 +397,7 @@ export class OracleDocLoader extends BaseDocumentLoader {
                 let metadata: Record<string, any> = {};
 
                 if (row["MDATA"]) {
-                    const data = row["MDATA"] as string;
+                    const data = (await (row["MDATA"] as unknown as oracledb.Lob).getData()).toString();
                     if (
                         data.trim().startsWith("<!DOCTYPE html") ||
                         data.trim().startsWith("<HTML>")

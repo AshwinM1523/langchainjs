@@ -95,7 +95,7 @@ describe('OracleDocLoader - loadFromTable', () => {
       executeMock.mockResolvedValueOnce({
         rows: [
           {
-            MDATA: '<HTML><title>Title1</title><meta name="author" content="Author1"/></HTML>',
+            MDATA: { getData: jest.fn().mockImplementation( () => '<HTML><title>Title1</title><meta name="author" content="Author1"/></HTML>' )  },
             TEXT: 'Text content 1',
             ROWID: 'AAABBBCCC',
             COL1: 'Value1',
@@ -103,7 +103,7 @@ describe('OracleDocLoader - loadFromTable', () => {
             COL3: new Date('2021-01-01'),
           },
           {
-            MDATA: '<HTML><title>Title2</title><meta name="author" content="Author2"/></HTML>',
+            MDATA: { getData: jest.fn().mockImplementation( () => '<HTML><title>Title2</title><meta name="author" content="Author2"/></HTML>' )  },
             TEXT: 'Text content 2',
             ROWID: 'AAABBBCCD',
             COL1: 'Value2',
@@ -111,7 +111,7 @@ describe('OracleDocLoader - loadFromTable', () => {
             COL3: new Date('2021-02-01'),
           },
         ],
-      } as oracledb.Result<TableRow>);
+      });
   
       const loader = new OracleDocLoader(
         conn as oracledb.Connection,
@@ -312,6 +312,8 @@ describe('OracleDocLoader - loadFromTable', () => {
 
   describe('OracleDocLoader - Integration Tests', () => {
     let connection: oracledb.Connection;
+    const expectedDate1 = new Date('2021-01-01')
+    const expectedDate2 = new Date('2021-02-01')
   
     beforeAll(async () => {
       try {
@@ -349,18 +351,18 @@ describe('OracleDocLoader - loadFromTable', () => {
             '<HTML><title>Title1</title><meta name="author" content="Author1"/></HTML>',
             'Value1',
             123,
-            DATE '2021-01-01'
+            :date1
           )
-        `);
+        `, {date1: expectedDate1});
   
         await connection.execute(`
           INSERT INTO MYTABLE (MYCOLUMN, COL1, COL2, COL3) VALUES (
             '<HTML><title>Title2</title><meta name="author" content="Author2"/></HTML>',
             'Value2',
             456,
-            DATE '2021-02-01'
+            :date2
           )
-        `);
+        `, {date2: expectedDate2});
   
         await connection.commit();
       } catch (err) {
@@ -399,7 +401,7 @@ describe('OracleDocLoader - loadFromTable', () => {
         author: 'Author1',
         COL1: 'Value1',
         COL2: 123,
-        COL3: new Date('2021-01-01'),
+        COL3: expectedDate1,
       });
   
       expect(documents[1].metadata).toMatchObject({
@@ -407,7 +409,7 @@ describe('OracleDocLoader - loadFromTable', () => {
         author: 'Author2',
         COL1: 'Value2',
         COL2: 456,
-        COL3: new Date('2021-02-01'),
+        COL3: expectedDate2,
       });
     });
   });
