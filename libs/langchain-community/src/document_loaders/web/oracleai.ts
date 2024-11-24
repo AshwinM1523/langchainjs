@@ -268,12 +268,6 @@ export class OracleDocLoader extends BaseDocumentLoader {
     return /^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier);
   }
 
-  private async getUsername(): Promise<string> {
-    const result = await this.conn.execute<{ USER: string }>('SELECT USER FROM dual');
-    return (result.rows?.[0]?.USER) || "unknown_user";
-  }
-
-
   private async loadFromTable(m_params: any): Promise<Document[]> {
     const results: Document[] = [];
     try {
