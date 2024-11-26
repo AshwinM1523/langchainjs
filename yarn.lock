@@ -11580,6 +11580,7 @@ __metadata:
     hdb: 0.19.8
     hnswlib-node: ^3.0.0
     html-to-text: ^9.0.5
+    htmlparser2: ^9.1.0
     ibm-cloud-sdk-core: ^5.0.2
     ignore: ^5.2.0
     interface-datastore: ^8.2.11
