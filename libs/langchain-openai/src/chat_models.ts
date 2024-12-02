@@ -14,7 +14,6 @@ import {
   ToolMessageChunk,
   OpenAIToolCall,
   isAIMessage,
-  convertToChunk,
   UsageMetadata,
 } from "@langchain/core/messages";
 import {
@@ -343,6 +342,7 @@ function _convertChatOpenAIToolTypeToOpenAITool(
   return _convertToOpenAITool(tool, fields);
 }
 
+// TODO: Use the base structured output options param in next breaking release.
 export interface ChatOpenAIStructuredOutputMethodOptions<
   IncludeRaw extends boolean
 > extends StructuredOutputMethodOptions<IncludeRaw> {
@@ -423,6 +423,11 @@ export interface ChatOpenAICallOptions
    * [Learn more](https://platform.openai.com/docs/guides/audio).
    */
   audio?: OpenAIClient.Chat.ChatCompletionAudioParam;
+  /**
+   * Static predicted output content, such as the content of a text file that is being regenerated.
+   * [Learn more](https://platform.openai.com/docs/guides/latency-optimization#use-predicted-outputs).
+   */
+  prediction?: OpenAIClient.ChatCompletionPredictionContent;
 }
 
 export interface ChatOpenAIFields
@@ -1329,6 +1334,9 @@ export class ChatOpenAI<
         : {}),
       ...this.modelKwargs,
     };
+    if (options?.prediction !== undefined) {
+      params.prediction = options.prediction;
+    }
     return params;
   }
 
@@ -1351,19 +1359,6 @@ export class ChatOpenAI<
     options: this["ParsedCallOptions"],
     runManager?: CallbackManagerForLLMRun
   ): AsyncGenerator<ChatGenerationChunk> {
-    if (this.model.includes("o1-")) {
-      console.warn(
-        "[WARNING]: OpenAI o1 models do not yet support token-level streaming. Streaming will yield single chunk."
-      );
-      const result = await this._generate(messages, options, runManager);
-      const messageChunk = convertToChunk(result.generations[0].message);
-      yield new ChatGenerationChunk({
-        message: messageChunk,
-        text:
-          typeof messageChunk.content === "string" ? messageChunk.content : "",
-      });
-      return;
-    }
     const messagesMapped: OpenAICompletionParam[] =
       _convertMessagesToOpenAIParams(messages);
     const params = {
@@ -1932,7 +1927,6 @@ export class ChatOpenAI<
     RunOutput extends Record<string, any> = Record<string, any>
   >(
     outputSchema:
-      | StructuredOutputMethodParams<RunOutput, false>
       | z.ZodType<RunOutput>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       | Record<string, any>,
@@ -1944,7 +1938,6 @@ export class ChatOpenAI<
     RunOutput extends Record<string, any> = Record<string, any>
   >(
     outputSchema:
-      | StructuredOutputMethodParams<RunOutput, true>
       | z.ZodType<RunOutput>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       | Record<string, any>,
@@ -1956,7 +1949,6 @@ export class ChatOpenAI<
     RunOutput extends Record<string, any> = Record<string, any>
   >(
     outputSchema:
-      | StructuredOutputMethodParams<RunOutput, boolean>
       | z.ZodType<RunOutput>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       | Record<string, any>,
